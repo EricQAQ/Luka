@@ -1,0 +1,16 @@
+version: '2'
+services:
+  influxdb:
+    image: influxdb:1.3
+    ports:
+      - "8083:8083"
+      - "8086:8086"
+      - "8089:8089/udp"
+    environment:
+      INFLUXDB_UDP_ENABLED: 'true'
+      INFLUXDB_UDP_BIND_ADDRESS: ':8089'
+      INFLUXDB_UDP_DATABASE: 'udp'
+  redis:
+    image: redis:3.2
+    ports:
+      - "6379:6379"

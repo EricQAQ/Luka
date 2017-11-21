@@ -1,0 +1,8 @@
+package: luka
+import:
+- package: github.com/docopt/docopt-go
+- package: github.com/go-redis/redis
+- package: github.com/influxdata/influxdb
+  subpackages:
+  - client/v2
+- package: github.com/Pallinder/go-randomdata
