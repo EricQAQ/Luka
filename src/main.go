@@ -5,15 +5,13 @@ import (
 	"net"
 	"time"
 	"strconv"
-	"runtime"
+	"math/rand"
 
 	"github.com/docopt/docopt-go"
 	"github.com/go-redis/redis"
 	"github.com/influxdata/influxdb/client/v2"
-	"github.com/Pallinder/go-randomdata"
+	"github.com/satori/go.uuid"
 )
-import "net/http"
-import _ "net/http/pprof"
 
 const usage = `
 Redis Pressure Test Command Tool.
@@ -37,23 +35,19 @@ Options:
 
 var (
 	metricsPointCh chan *client.Point
-	isFinish chan bool
 	isWriteFinish chan bool
-	redisClient *redis.Client
 	arguments map[string]interface{}
 )
 
 func getRedisClient(host, port string) *redis.Client {
-	if redisClient == nil {
-		redisClient = redis.NewClient(&redis.Options{
-			Addr:     net.JoinHostPort(host, port),
-			Password: "",
-			DB:       0,
-			PoolSize: 1000,
-			ReadTimeout: time.Duration(500 * time.Millisecond),
-			WriteTimeout: time.Duration(200 * time.Millisecond),
-		})
-	}
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     net.JoinHostPort(host, port),
+		Password: "",
+		DB:       0,
+		PoolSize: 100,
+		ReadTimeout: time.Duration(500 * time.Millisecond),
+		WriteTimeout: time.Duration(200 * time.Millisecond),
+	})
 	return redisClient
 }
 
@@ -133,48 +127,34 @@ func makeMetricsPoint(duration float64, op string, err error) *client.Point {
 	return point
 }
 
-func simpleSet(host, port string) {
-	redisClient = getRedisClient(host, port)
-	startTime := time.Now()
-	flag := redisClient.Set(randomdata.SillyName(), randomdata.Email(), 0).Err()
-	duration := time.Now().Sub(startTime).Seconds()
-	metricsPointCh <- makeMetricsPoint(duration, "set", flag)
-	isFinish <- true
-}
-
-func simpleStringT(host, port string, worker, total int) {
-	for t := 1; t <= total / worker; t++ {
-		for i := 1; i <= worker; i++ {
-			go simpleSet(host, port)
-		}
-		for j := 1; j <= worker; j++ {
-			<- isFinish
-		}
+func benchSetOp(host, port string, total int) {
+	redisClient := getRedisClient(host, port)
+	defer redisClient.Close()
+	for t := 1; t <= total; t++ {
+		startTime := time.Now()
+		key := fmt.Sprintf("%s-set-%d", uuid.NewV4().String(), rand.Intn(10000000))
+		flag := redisClient.Set(key, rand.Intn(100000), 0).Err()
+		duration := time.Now().Sub(startTime).Seconds()
+		metricsPointCh <- makeMetricsPoint(duration, "set", flag)
 	}
 }
 
 func main() {
 	arguments, _ = docopt.Parse(usage, nil, true, "1.0.0", false)
-	ensureAllArguments()
-	runtime.GOMAXPROCS(runtime.NumCPU())
 	// Update default value for params
-	go func() {
-		http.ListenAndServe("localhost:6060", nil)
-	}()
+	ensureAllArguments()
 	host := arguments["--host"].(string)
 	port := arguments["--port"].(string)
-	// Generator for fake data
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	metricsPointCh = make(chan *client.Point, total)
-	isFinish = make(chan bool, total)
 	isWriteFinish = make(chan bool, total / 100)
+	for i := 1; i <= worker; i++ {
+		go benchSetOp(host, port, total / worker)
+	}
+	fmt.Println("Start sending metrics...")
 	go sendMetricsPointLoop()
-	simpleStringT(host, port, worker, total)
-	defer redisClient.Close()
 	for i:= 0; i < total / 100; i++ {
 		<- isWriteFinish
 	}
-	fmt.Println(redisClient.DBSize())
-	redisClient.FlushAll()
 }
