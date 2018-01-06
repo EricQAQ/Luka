@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"net"
 	"time"
+	"strings"
 	"strconv"
 
 	"github.com/docopt/docopt-go"
@@ -74,8 +75,9 @@ func ensureAllArguments() {
 func benchOp(host, port string, total int, op string) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
-	redisOp := RedisOp{}
-	fc := reflect.ValueOf(redisOp).MethodByName(op)
+	redisOp := &RedisOp{}
+	opName := opMapping[op].opName
+	fc := reflect.ValueOf(redisOp).MethodByName(opName)
 	rc := make([]reflect.Value, 0)
 	rc = append(rc, reflect.ValueOf(redisClient))
 	for t :=1; t <= total; t++ {
@@ -92,7 +94,7 @@ func main() {
 	ensureAllArguments()
 	host := arguments["--host"].(string)
 	port := arguments["--port"].(string)
-	op := arguments["--op"].(string)
+	op := strings.ToLower(arguments["--op"].(string))
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	metricsPointCh = make(chan *client.Point, total)

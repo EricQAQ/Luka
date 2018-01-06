@@ -15,6 +15,22 @@ const MINEXP = 10
 const MAXVALUE = 1000000
 const KEYRANGE = 10000000
 
+type OpAttr struct {
+	opName string
+	isWrite bool
+}
+
+var opMapping = map[string]OpAttr {
+	"set": OpAttr{opName: "Set", isWrite: true},
+	"mset": OpAttr{opName: "MSet", isWrite: true},
+	"lpush": OpAttr{opName: "LPush", isWrite: true},
+	"rpush": OpAttr{opName: "RPush", isWrite: true},
+	"sadd": OpAttr{opName: "SAdd", isWrite: true},
+	"zadd": OpAttr{opName: "ZAdd", isWrite: true},
+	"hset": OpAttr{opName: "HSet", isWrite: true},
+	"hmset": OpAttr{opName: "HMSet", isWrite: true},
+}
+
 func genKey() string {
 	return fmt.Sprintf("%s-%s-%d",
 					   uuid.NewV4().String(),
@@ -28,14 +44,14 @@ func genField() string {
 
 type RedisOp struct {}
 
-func (op *RedisOp)set(redisClient *redis.Client) bool {
+func (op *RedisOp)Set(redisClient *redis.Client) bool {
 	exp := time.Duration(rand.Intn(MAXEXP - MINEXP) + MINEXP) * time.Second
 	key := genKey()
 	value := rand.Intn(MAXVALUE)
 	return redisClient.Set(key, value, exp).Err() == nil
 }
 
-func (op *RedisOp)mset(redisClient *redis.Client) bool {
+func (op *RedisOp)MSet(redisClient *redis.Client) bool {
 	count := (rand.Intn(10) + 1) * 2
 	var kv = make([]interface{}, count, count)
 	for i := 0; i < count; {
@@ -59,15 +75,15 @@ func (op *RedisOp)listPush(redisClient *redis.Client, isLeft bool) error {
 	return redisClient.RPush(key, value...).Err()
 }
 
-func (op *RedisOp)lpush(redisClient *redis.Client) bool {
+func (op *RedisOp)LPush(redisClient *redis.Client) bool {
 	return op.listPush(redisClient, true) == nil
 }
 
-func (op *RedisOp)rpush(redisClient *redis.Client) bool {
+func (op *RedisOp)RPush(redisClient *redis.Client) bool {
 	return op.listPush(redisClient, false) == nil
 }
 
-func (op *RedisOp) sadd(redisClient *redis.Client) bool {
+func (op *RedisOp)SAdd(redisClient *redis.Client) bool {
 	key := genKey()
 	count := rand.Intn(10) + 1
 	var value = make([]interface{}, count, count)
@@ -77,7 +93,7 @@ func (op *RedisOp) sadd(redisClient *redis.Client) bool {
 	return redisClient.SAdd(key, value...).Err() == nil
 }
 
-func (op *RedisOp) zadd(redisClient *redis.Client) bool {
+func (op *RedisOp)ZAdd(redisClient *redis.Client) bool {
 	key := genKey()
 	count := rand.Intn(10) + 1
 	var value = make([]redis.Z, count, count)
@@ -90,14 +106,14 @@ func (op *RedisOp) zadd(redisClient *redis.Client) bool {
 	return redisClient.ZAdd(key, value...).Err() == nil
 }
 
-func (op *RedisOp) hset(redisClient *redis.Client) bool {
+func (op *RedisOp)HSet(redisClient *redis.Client) bool {
 	key := genKey()
 	field := genField()
 	value := rand.Intn(MAXVALUE)
 	return redisClient.HSet(key, field, value).Err() == nil
 }
 
-func (op *RedisOp) hmset(redisClient *redis.Client) bool {
+func (op *RedisOp)HMSet(redisClient *redis.Client) bool {
 	key := genKey()
 	count := rand.Intn(10) + 1
 	var hashMap = make(map[string]interface{})
