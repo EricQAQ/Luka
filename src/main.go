@@ -2,22 +2,21 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 	"net"
 	"time"
 	"strconv"
-	"math/rand"
 
 	"github.com/docopt/docopt-go"
-	"github.com/go-redis/redis"
 	"github.com/influxdata/influxdb/client/v2"
-	"github.com/satori/go.uuid"
+	"github.com/go-redis/redis"
 )
 
 const usage = `
 Redis Pressure Test Command Tool.
 
 Usage:
-	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>]
+	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>]
 	luka --help
 	luka --version
 
@@ -28,13 +27,13 @@ Options:
 	-p <port>, --port=<port>                        The redis port.
 	-w <worker_number>, --worker=<worker_number>    The number of the concurrent workers.
 	--total=<total>                                 The total request count.
+	--op=<op>                                       The redis op to do benchtest.
 	--influxdb-host=<influxdb-host>					The influxdb host.
 	--influxdb-port=<influxdb-port>					The influxdb port.
 	--influxdb-database=<database>                  The influxdb database which will be written.
 `
 
 var (
-	metricsPointCh chan *client.Point
 	isWriteFinish chan bool
 	arguments map[string]interface{}
 )
@@ -72,70 +71,18 @@ func ensureAllArguments() {
 	}
 }
 
-func sendMetricsPointLoop() {
-	influxdbClient, _ := client.NewUDPClient(client.UDPConfig{
-		Addr: net.JoinHostPort(arguments["--influxdb-host"].(string), arguments["--influxdb-port"].(string)),
-	})
-	defer influxdbClient.Close()
-
-	var bp client.BatchPoints
-
-	makeBatchPoint := func() client.BatchPoints {
-		bp, _ := client.NewBatchPoints(client.BatchPointsConfig{
-			Database: arguments["--influxdb-database"].(string),
-			Precision: "ns",
-		})
-		return bp
-	}
-
-	write := func(bp client.BatchPoints) {
-		if len(bp.Points()) > 0 {
-			influxdbClient.Write(bp)
-			isWriteFinish <- true
-		}
-	}
-
-	for {
-		p := <-metricsPointCh
-		if bp == nil {
-			bp = makeBatchPoint()
-		}
-		bp.AddPoint(p)
-		if len(bp.Points()) >= 100 {
-			go write(bp)
-			bp = nil
-		}
-	}
-}
-
-func makeMetricsPoint(duration float64, op string, err error) *client.Point {
-	flag := "false"
-	errInfo := ""
-	if err != nil {
-		flag = "true"
-		errInfo =err.Error()
-	}
-	tags := map[string]string{
-		"op": op,
-		"is_exc": flag,
-	}
-	fields := map[string]interface{}{
-		"value": duration,
-		"error": errInfo,
-	}
-	point, _ := client.NewPoint("luka", tags, fields, time.Now())
-	return point
-}
-
-func benchSetOp(host, port string, total int) {
+func benchOp(host, port string, total int, op string) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
-	for t := 1; t <= total; t++ {
+	redisOp := RedisOp{}
+	fc := reflect.ValueOf(redisOp).MethodByName(op)
+	rc := make([]reflect.Value, 0)
+	rc = append(rc, reflect.ValueOf(redisClient))
+	for t :=1; t <= total; t++ {
 		startTime := time.Now()
-		key := fmt.Sprintf("%s-set-%d", uuid.NewV4().String(), rand.Intn(10000000))
-		flag := redisClient.Set(key, rand.Intn(100000), 0).Err()
+		flag := fc.Call(rc)[0].Bool()
 		duration := time.Now().Sub(startTime).Seconds()
-		metricsPointCh <- makeMetricsPoint(duration, "set", flag)
+		metricsPointCh <- makeMetricsPoint(duration, op, flag)
 	}
 }
 
@@ -145,12 +92,13 @@ func main() {
 	ensureAllArguments()
 	host := arguments["--host"].(string)
 	port := arguments["--port"].(string)
+	op := arguments["--op"].(string)
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	metricsPointCh = make(chan *client.Point, total)
 	isWriteFinish = make(chan bool, total / 100)
 	for i := 1; i <= worker; i++ {
-		go benchSetOp(host, port, total / worker)
+		go benchOp(host, port, total / worker, op)
 	}
 	fmt.Println("Start sending metrics...")
 	go sendMetricsPointLoop()
