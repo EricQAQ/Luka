@@ -18,7 +18,7 @@ const usage = `
 Redis Pressure Test Command Tool.
 
 Usage:
-	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--pipeline=<pipeline>]
+	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--rand-key=<rand-key>] [--pipeline=<pipeline>]
 	luka --help
 	luka --version
 
@@ -30,6 +30,7 @@ Options:
 	-w <worker_number>, --worker=<worker_number>    The number of the concurrent workers.
 	--total=<total>                                 The total request count.
 	--op=<op>                                       The redis op to do benchtest.
+	--rand-key=<rand-key>                           Redis Unique Key count.
 	--pipeline=<pipeline>                           Every pipeline contains n requests.
 	--influxdb-host=<influxdb-host>					The influxdb host.
 	--influxdb-port=<influxdb-port>					The influxdb port.
@@ -78,7 +79,9 @@ func ensureAllArguments() {
 	}
 }
 
-func benchOp(host, port string, total int, op string, pipeline int) {
+func benchOp(host, port string,
+			 total, pipeline, unqKeyCount int,
+			 op string) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 
@@ -86,7 +89,7 @@ func benchOp(host, port string, total int, op string, pipeline int) {
 	opObj := opMapping[op]
 	fc := reflect.ValueOf(redisOp).MethodByName(opObj.funcName)
 	rc := make([]reflect.Value, 0)
-	rc = append(rc, reflect.ValueOf(redisClient))
+	rc = append(rc, reflect.ValueOf(redisClient), reflect.ValueOf(unqKeyCount))
 
 	bench := func() {
 		startTime := time.Now()
@@ -108,13 +111,13 @@ func benchOp(host, port string, total int, op string, pipeline int) {
 	}
 }
 
-func makeFakeData(host, port string, op string, total int) {
+func makeFakeData(host, port, op string, total, unqKeyCount int) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 	defer wgMakeFake.Done()
 	redisOp := RedisOp{op_name: op}
 	fmt.Println("Start to fill up fake redis data.")
-	rv := redisOp.FillUpData(redisClient, total)
+	rv := redisOp.FillUpData(redisClient, total, unqKeyCount)
 	if !rv {
 		fmt.Println("Failed to fill up fake redis data.")
 		return
@@ -144,6 +147,10 @@ func main() {
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	pipeline, _ := strconv.Atoi(arguments["--pipeline"].(string))
+	unqKeyCount, err := strconv.Atoi(arguments["--rand-key"].(string))
+	if err != nil {
+		unqKeyCount = total
+	}
 
 	roundCount, pipelineCount := getOpCount(worker, total, pipeline)
 	metricsPointCh = make(chan *client.Point, total)
@@ -156,14 +163,14 @@ func main() {
 	if !opMapping[op].isWrite {
 		wgMakeFake.Add(10)
 		for x := 0; x < 10; x++ {
-			go makeFakeData(host, port, op, total / 10)
+			go makeFakeData(host, port, op, total / 10, unqKeyCount)
 		}
 		wgMakeFake.Wait()
 	}
 
 	// handle bench test
 	for i := 1; i <= worker; i++ {
-		go benchOp(host, port, roundCount, op, pipelineCount)
+		go benchOp(host, port, roundCount, pipelineCount, unqKeyCount, op)
 	}
 	fmt.Println("Start sending metrics...")
 
