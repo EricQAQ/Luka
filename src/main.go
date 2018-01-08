@@ -118,8 +118,8 @@ func makeFakeData(host, port, op string, total, unqKeyCount int) {
 	redisOp := RedisOp{op_name: op}
 	fmt.Println("Start to fill up fake redis data.")
 	rv := redisOp.FillUpData(redisClient, total, unqKeyCount)
-	if !rv {
-		fmt.Println("Failed to fill up fake redis data.")
+	if rv != nil {
+		fmt.Printf("Failed to fill up fake redis data: %s\n", rv)
 		return
 	}
 }

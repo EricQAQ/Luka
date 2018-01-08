@@ -161,7 +161,7 @@ func (op *RedisOp)HMSet(cmdable redis.Cmdable, unqKeyCount int) bool {
 	return cmdable.HMSet(key, hashMap).Err() == nil
 }
 
-func (op *RedisOp)FillUpData(redisClient *redis.Client, total, unqKeyCount int) bool {
+func (op *RedisOp)FillUpData(redisClient *redis.Client, total, unqKeyCount int) error {
 	totalCount := total / 10
 	round := totalCount / FILLUPPIPELINE + 1
 	redisOp := opMapping[op.op_name]
@@ -175,9 +175,9 @@ func (op *RedisOp)FillUpData(redisClient *redis.Client, total, unqKeyCount int) 
 			fc.Call(rc)
 		}
 		_, err := pipe.Exec()
-		if err != nil { return false }
+		if err != nil { return err }
 	}
-	return true
+	return nil
 }
 
 func (op *RedisOp)Get(cmdable redis.Cmdable, unqKeyCount int) bool {
