@@ -29,7 +29,7 @@ Options:
 	-p <port>, --port=<port>                        The redis port.
 	-w <worker_number>, --worker=<worker_number>    The number of the concurrent workers.
 	--total=<total>                                 The total request count.
-	--op=<op>                                       The redis op to do benchtest.
+	--op=<op>                                       The redis op to do benchtest. Currently support: set, mset, lpush, rpush, sadd, zadd, hset, hmset, get, mget, lrange, smembers, scard, zcard, zcount, zscore, zrange, zrangebyscore, zrevrangebyscore, zrank, hget, hmget, hgetall
 	--rand-key=<rand-key>                           Redis Unique Key count.
 	--pipeline=<pipeline>                           Every pipeline contains n requests.
 	--influxdb-host=<influxdb-host>					The influxdb host.

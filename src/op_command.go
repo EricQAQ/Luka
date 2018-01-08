@@ -39,13 +39,13 @@ var opMapping = map[string]OpAttr {
 	"lrange": OpAttr{ funcName: "LRange", isWrite: false, writeFunc: "LPush" },
 	"smembers": OpAttr{ funcName: "SMembers", isWrite: false, writeFunc: "Sadd"},
 	"scard": OpAttr{ funcName: "SCard", isWrite: false, writeFunc: "Sadd"},
-	"zcard": OpAttr{ funcName: "ZCard", isWrite: false, writeFunc: "Zadd"},
-	"zcount": OpAttr{ funcName: "ZCount", isWrite: false, writeFunc: "Zadd"},
-	"zscore": OpAttr{ funcName: "ZScore", isWrite: false, writeFunc: "Zadd"},
-	"zrange": OpAttr{ funcName: "ZRange", isWrite: false, writeFunc: "Zadd"},
-	"zrangebyscore": OpAttr{ funcName: "ZRangeByScore", isWrite: false, writeFunc: "Zadd"},
-	"zrevrangebyscore": OpAttr{ funcName: "ZRevRangeByScore", isWrite: false, writeFunc: "Zadd"},
-	"zrank": OpAttr{ funcName: "ZRank", isWrite: false, writeFunc: "Zadd"},
+	"zcard": OpAttr{ funcName: "ZCard", isWrite: false, writeFunc: "ZAdd"},
+	"zcount": OpAttr{ funcName: "ZCount", isWrite: false, writeFunc: "ZAdd"},
+	"zscore": OpAttr{ funcName: "ZScore", isWrite: false, writeFunc: "ZAdd"},
+	"zrange": OpAttr{ funcName: "ZRange", isWrite: false, writeFunc: "ZAdd"},
+	"zrangebyscore": OpAttr{ funcName: "ZRangeByScore", isWrite: false, writeFunc: "ZAdd"},
+	"zrevrangebyscore": OpAttr{ funcName: "ZRevRangeByScore", isWrite: false, writeFunc: "ZAdd"},
+	"zrank": OpAttr{ funcName: "ZRank", isWrite: false, writeFunc: "ZAdd"},
 	"hget": OpAttr{ funcName: "HGet", isWrite: false, writeFunc: "HGet"},
 	"hmget": OpAttr{ funcName: "HMGet", isWrite: false, writeFunc: "HGet"},
 	"hgetall": OpAttr{ funcName: "HGetAll", isWrite: false, writeFunc: "HGet"},
@@ -108,11 +108,11 @@ func (op *RedisOp)listPush(cmdable redis.Cmdable,
 }
 
 func (op *RedisOp)LPush(cmdable redis.Cmdable, unqKeyCount int) bool {
-	return op.listPush(cmdable, true) == nil
+	return op.listPush(cmdable, true, unqKeyCount) == nil
 }
 
 func (op *RedisOp)RPush(cmdable redis.Cmdable, unqKeyCount int) bool {
-	return op.listPush(cmdable, false) == nil
+	return op.listPush(cmdable, false, unqKeyCount) == nil
 }
 
 func (op *RedisOp)SAdd(cmdable redis.Cmdable, unqKeyCount int) bool {
