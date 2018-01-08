@@ -43,7 +43,7 @@ func sendMetricsPointLoop() {
 	write := func(bp client.BatchPoints) {
 		if len(bp.Points()) > 0 {
 			influxdbClient.Write(bp)
-			isWriteFinish <- true
+			wgWriteFinish.Done()
 		}
 	}
 

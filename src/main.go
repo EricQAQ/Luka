@@ -7,6 +7,7 @@ import (
 	"time"
 	"strings"
 	"strconv"
+	"sync"
 
 	"github.com/docopt/docopt-go"
 	"github.com/influxdata/influxdb/client/v2"
@@ -17,7 +18,7 @@ const usage = `
 Redis Pressure Test Command Tool.
 
 Usage:
-	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>]
+	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--pipeline=<pipeline>]
 	luka --help
 	luka --version
 
@@ -29,13 +30,15 @@ Options:
 	-w <worker_number>, --worker=<worker_number>    The number of the concurrent workers.
 	--total=<total>                                 The total request count.
 	--op=<op>                                       The redis op to do benchtest.
+	--pipeline=<pipeline>                           Every pipeline contains n requests.
 	--influxdb-host=<influxdb-host>					The influxdb host.
 	--influxdb-port=<influxdb-port>					The influxdb port.
 	--influxdb-database=<database>                  The influxdb database which will be written.
 `
 
 var (
-	isWriteFinish chan bool
+	wgWriteFinish sync.WaitGroup
+	wgMakeFake sync.WaitGroup
 	arguments map[string]interface{}
 )
 
@@ -70,22 +73,65 @@ func ensureAllArguments() {
 	if arguments["--influxdb-database"] == nil {
 		arguments["--influxdb-database"] = "udp"
 	}
+	if arguments["--pipeline"] == nil {
+		arguments["--pipeline"] = "0"
+	}
 }
 
-func benchOp(host, port string, total int, op string) {
+func benchOp(host, port string, total int, op string, pipeline int) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
-	redisOp := &RedisOp{}
-	opName := opMapping[op].opName
-	fc := reflect.ValueOf(redisOp).MethodByName(opName)
+
+	redisOp := &RedisOp{op_name: op}
+	opObj := opMapping[op]
+	fc := reflect.ValueOf(redisOp).MethodByName(opObj.funcName)
 	rc := make([]reflect.Value, 0)
 	rc = append(rc, reflect.ValueOf(redisClient))
-	for t :=1; t <= total; t++ {
+
+	bench := func() {
 		startTime := time.Now()
 		flag := fc.Call(rc)[0].Bool()
 		duration := time.Now().Sub(startTime).Seconds()
 		metricsPointCh <- makeMetricsPoint(duration, op, flag)
 	}
+
+	if pipeline > 0 {	// use pipeline
+		for t := 0; t < total; t++ {
+			for i := 0; i < pipeline; i++ {
+				bench()
+			}
+		}
+	} else {	// without pipeline
+		for t := 0; t < total; t++ {
+			bench()
+		}
+	}
+}
+
+func makeFakeData(host, port string, op string, total int) {
+	redisClient := getRedisClient(host, port)
+	defer redisClient.Close()
+	defer wgMakeFake.Done()
+	redisOp := RedisOp{op_name: op}
+	fmt.Println("Start to fill up fake redis data.")
+	rv := redisOp.FillUpData(redisClient, total)
+	if !rv {
+		fmt.Println("Failed to fill up fake redis data.")
+		return
+	}
+}
+
+func getOpCount(worker, total, pipeline int) (int, int) {
+	pipelineCount := Min(total / worker, Max(0, pipeline))
+	roundCount := total / worker
+	if pipelineCount != 0 {
+		if roundCount % pipelineCount == 0 {
+			roundCount = roundCount / pipelineCount
+		} else {
+			roundCount = roundCount / pipelineCount + 1
+		}
+	}
+	return roundCount, pipelineCount
 }
 
 func main() {
@@ -97,14 +143,32 @@ func main() {
 	op := strings.ToLower(arguments["--op"].(string))
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
+	pipeline, _ := strconv.Atoi(arguments["--pipeline"].(string))
+
+	roundCount, pipelineCount := getOpCount(worker, total, pipeline)
 	metricsPointCh = make(chan *client.Point, total)
-	isWriteFinish = make(chan bool, total / 100)
+
+	if pipelineCount > 0 {
+		fmt.Printf("Use Pipeline: %d\n", pipelineCount)
+	}
+
+	// make fake redis data
+	if !opMapping[op].isWrite {
+		wgMakeFake.Add(10)
+		for x := 0; x < 10; x++ {
+			go makeFakeData(host, port, op, total / 10)
+		}
+		wgMakeFake.Wait()
+	}
+
+	// handle bench test
 	for i := 1; i <= worker; i++ {
-		go benchOp(host, port, total / worker, op)
+		go benchOp(host, port, roundCount, op, pipelineCount)
 	}
 	fmt.Println("Start sending metrics...")
+
+	// metrics coroutine
+	wgWriteFinish.Add(total / 100)
 	go sendMetricsPointLoop()
-	for i:= 0; i < total / 100; i++ {
-		<- isWriteFinish
-	}
+	wgWriteFinish.Wait()
 }

@@ -2,33 +2,38 @@ package main
 
 import (
 	"fmt"
-	"time"
 	"math/rand"
 	"strconv"
+	"reflect"
 
 	"github.com/satori/go.uuid"
 	"github.com/go-redis/redis"
 )
 
-const MAXEXP = 60
-const MINEXP = 10
 const MAXVALUE = 1000000
 const KEYRANGE = 10000000
+const FILLUPPIPELINE = 1000
 
 type OpAttr struct {
-	opName string
+	funcName string
 	isWrite bool
+	writeFunc string
 }
 
+var keys []string
+
 var opMapping = map[string]OpAttr {
-	"set": OpAttr{opName: "Set", isWrite: true},
-	"mset": OpAttr{opName: "MSet", isWrite: true},
-	"lpush": OpAttr{opName: "LPush", isWrite: true},
-	"rpush": OpAttr{opName: "RPush", isWrite: true},
-	"sadd": OpAttr{opName: "SAdd", isWrite: true},
-	"zadd": OpAttr{opName: "ZAdd", isWrite: true},
-	"hset": OpAttr{opName: "HSet", isWrite: true},
-	"hmset": OpAttr{opName: "HMSet", isWrite: true},
+	"set": OpAttr{ funcName: "Set", isWrite: true, writeFunc: "Set" },
+	"mset": OpAttr{ funcName: "MSet", isWrite: true, writeFunc: "Set" },
+	"lpush": OpAttr{ funcName: "LPush", isWrite: true, writeFunc: "LPush" },
+	"rpush": OpAttr{ funcName: "RPush", isWrite: true, writeFunc: "LPush" },
+	"sadd": OpAttr{ funcName: "SAdd", isWrite: true, writeFunc: "SAdd" },
+	"zadd": OpAttr{ funcName: "ZAdd", isWrite: true, writeFunc: "ZAdd" },
+	"hset": OpAttr{ funcName: "HSet", isWrite: true, writeFunc: "HSet" },
+	"hmset": OpAttr{ funcName: "HMSet", isWrite: true, writeFunc: "HSet" },
+
+	"get": OpAttr{ funcName: "Get", isWrite: false, writeFunc: "Set" },
+	"mget": OpAttr{ funcName: "MGet", isWrite: false, writeFunc: "Set" },
 }
 
 func genKey() string {
@@ -42,58 +47,63 @@ func genField() string {
 	return fmt.Sprintf("%s", uuid.NewV4().String())
 }
 
-type RedisOp struct {}
-
-func (op *RedisOp)Set(redisClient *redis.Client) bool {
-	exp := time.Duration(rand.Intn(MAXEXP - MINEXP) + MINEXP) * time.Second
-	key := genKey()
-	value := rand.Intn(MAXVALUE)
-	return redisClient.Set(key, value, exp).Err() == nil
+type RedisOp struct {
+	op_name string
 }
 
-func (op *RedisOp)MSet(redisClient *redis.Client) bool {
+func (op *RedisOp)Set(cmdable redis.Cmdable) bool {
+	key := genKey()
+	value := rand.Intn(MAXVALUE)
+	keys = append(keys, key)
+	return cmdable.Set(key, value, 0).Err() == nil
+}
+
+func (op *RedisOp)MSet(cmdable redis.Cmdable) bool {
 	count := (rand.Intn(10) + 1) * 2
 	var kv = make([]interface{}, count, count)
 	for i := 0; i < count; {
-		kv[i] = genKey()
-		kv[i+1] = rand.Intn(MAXVALUE)
+		kv[i] = genKey()	// key
+		kv[i+1] = rand.Intn(MAXVALUE)	// value
+		keys = append(keys,kv[i].(string))
 		i = i + 2
 	}
-	return redisClient.MSet(kv...).Err() == nil
+	return cmdable.MSet(kv...).Err() == nil
 }
 
-func (op *RedisOp)listPush(redisClient *redis.Client, isLeft bool) error {
+func (op *RedisOp)listPush(cmdable redis.Cmdable, isLeft bool) error {
 	count := rand.Intn(10) + 1
 	key := genKey()
 	var value = make([]interface{}, count, count)
 	for i := 0; i < count; i++ {
 		value[i] = rand.Intn(MAXVALUE)
 	}
+	keys = append(keys, key)
 	if isLeft {
-		return redisClient.LPush(key, value...).Err()
+		return cmdable.LPush(key, value...).Err()
 	}
-	return redisClient.RPush(key, value...).Err()
+	return cmdable.RPush(key, value...).Err()
 }
 
-func (op *RedisOp)LPush(redisClient *redis.Client) bool {
-	return op.listPush(redisClient, true) == nil
+func (op *RedisOp)LPush(cmdable redis.Cmdable) bool {
+	return op.listPush(cmdable, true) == nil
 }
 
-func (op *RedisOp)RPush(redisClient *redis.Client) bool {
-	return op.listPush(redisClient, false) == nil
+func (op *RedisOp)RPush(cmdable redis.Cmdable) bool {
+	return op.listPush(cmdable, false) == nil
 }
 
-func (op *RedisOp)SAdd(redisClient *redis.Client) bool {
+func (op *RedisOp)SAdd(cmdable redis.Cmdable) bool {
 	key := genKey()
 	count := rand.Intn(10) + 1
 	var value = make([]interface{}, count, count)
 	for i := 0; i < count; i++ {
 		value[i] = rand.Intn(MAXVALUE)
 	}
-	return redisClient.SAdd(key, value...).Err() == nil
+	keys = append(keys, key)
+	return cmdable.SAdd(key, value...).Err() == nil
 }
 
-func (op *RedisOp)ZAdd(redisClient *redis.Client) bool {
+func (op *RedisOp)ZAdd(cmdable redis.Cmdable) bool {
 	key := genKey()
 	count := rand.Intn(10) + 1
 	var value = make([]redis.Z, count, count)
@@ -103,22 +113,59 @@ func (op *RedisOp)ZAdd(redisClient *redis.Client) bool {
 			Member: strconv.Itoa(rand.Intn(MAXVALUE)),
 		}
 	}
-	return redisClient.ZAdd(key, value...).Err() == nil
+	keys = append(keys, key)
+	return cmdable.ZAdd(key, value...).Err() == nil
 }
 
-func (op *RedisOp)HSet(redisClient *redis.Client) bool {
+func (op *RedisOp)HSet(cmdable redis.Cmdable) bool {
 	key := genKey()
 	field := genField()
 	value := rand.Intn(MAXVALUE)
-	return redisClient.HSet(key, field, value).Err() == nil
+	keys = append(keys, fmt.Sprintf("%s:%s", key, field))
+	return cmdable.HSet(key, field, value).Err() == nil
 }
 
-func (op *RedisOp)HMSet(redisClient *redis.Client) bool {
+func (op *RedisOp)HMSet(cmdable redis.Cmdable) bool {
 	key := genKey()
 	count := rand.Intn(10) + 1
 	var hashMap = make(map[string]interface{})
 	for i := 0; i < count; i++ {
-		hashMap[genField()] = rand.Intn(MAXVALUE)
+		field := genField()
+		hashMap[field] = rand.Intn(MAXVALUE)
+		keys = append(keys, fmt.Sprintf("%s:%s", key, field))
 	}
-	return redisClient.HMSet(key, hashMap).Err() == nil
+	return cmdable.HMSet(key, hashMap).Err() == nil
+}
+
+func (op *RedisOp)FillUpData(redisClient *redis.Client, total int) bool {
+	totalCount := total / 10
+	round := totalCount / FILLUPPIPELINE + 1
+	redisOp := opMapping[op.op_name]
+	pipe := redisClient.Pipeline()
+	fc := reflect.ValueOf(op).MethodByName(redisOp.writeFunc)
+	rc := make([]reflect.Value, 0)
+	rc = append(rc, reflect.ValueOf(pipe))
+
+	for i := 0; i < round; i++ {
+		for j := 0; j < FILLUPPIPELINE; j++ {
+			fc.Call(rc)
+		}
+		_, err := pipe.Exec()
+		if err != nil { return false }
+	}
+	return true
+}
+
+func (op *RedisOp)Get(redisClient *redis.Client) bool {
+	index := rand.Intn(len(keys) - 1)
+	return redisClient.Get(keys[index]).Err() == nil
+}
+
+func (op *RedisOp)MGet(redisClient *redis.Client) bool {
+	count := rand.Intn(10) + 1
+	var k = make([]string, count, count)
+	for i := 0; i < count; i++ {
+		k[i] = keys[rand.Intn(len(keys) - 1)]
+	}
+	return redisClient.MGet(k...).Err() == nil
 }
