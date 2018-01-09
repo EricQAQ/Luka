@@ -81,7 +81,7 @@ func ensureAllArguments() {
 }
 
 func benchOp(host, port string,
-			 total, pipeline, unqKeyCount int,
+			 total, pipeline, totalKey int,
 			 op string) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
@@ -93,7 +93,7 @@ func benchOp(host, port string,
 	rc := make([]reflect.Value, 0)
 	rc = append(rc, reflect.ValueOf(redisClient))
 	if opObj.isWrite {
-		rc = append(rc, reflect.ValueOf(unqKeyCount), reflect.ValueOf(false))
+		rc = append(rc, reflect.ValueOf(totalKey), reflect.ValueOf(false))
 	}
 
 	bench := func() {
@@ -112,12 +112,12 @@ func benchOp(host, port string,
 	}
 }
 
-func makeFakeData(host, port, op string, totalData, unqKeyCount int) {
+func makeFakeData(host, port, op string, totalData, totalKey int) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 	defer wgMakeFake.Done()
 	redisOp := RedisOp{op_name: op}
-	rv := redisOp.FillUpData(redisClient, totalData, unqKeyCount)
+	rv := redisOp.FillUpData(redisClient, totalData, totalKey)
 	if rv != nil {
 		fmt.Printf("Failed to fill up fake redis data: %s\n", rv)
 		return
@@ -147,13 +147,10 @@ func main() {
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	pipeline, _ := strconv.Atoi(arguments["--pipeline"].(string))
-	unqKeyCount, err := strconv.Atoi(arguments["--total-key"].(string))
-	if err != nil {
-		unqKeyCount = total
-	}
 
 	roundCount, pipelineCount := getOpCount(worker, total, pipeline)
 	metricsPointCh = make(chan *client.Point, total)
+	totalKey := total
 
 	if pipelineCount > 0 {
 		fmt.Printf("Use Pipeline: %d\n", pipelineCount)
@@ -161,11 +158,12 @@ func main() {
 
 	// make fake redis data
 	if !opMapping[op].isWrite {
+		totalKey, _ := strconv.Atoi(arguments["--total-key"].(string))
 		totalData, _ := strconv.Atoi(arguments["--total-data"].(string))
 		fmt.Println("Start to fill up fake redis data.")
 		wgMakeFake.Add(10)
 		for x := 0; x < 10; x++ {
-			go makeFakeData(host, port, op, totalData, unqKeyCount)
+			go makeFakeData(host, port, op, totalData / 10, totalKey)
 		}
 		wgMakeFake.Wait()
 		fmt.Printf(
@@ -177,7 +175,7 @@ func main() {
 
 	// handle bench test
 	for i := 1; i <= worker; i++ {
-		go benchOp(host, port, roundCount, pipelineCount, unqKeyCount, op)
+		go benchOp(host, port, roundCount, pipelineCount, totalKey, op)
 	}
 	fmt.Println("Start sending metrics...")
 
