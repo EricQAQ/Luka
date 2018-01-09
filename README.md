@@ -8,10 +8,7 @@ It can collect redis benchmark data and send to influxdb, for getting QPS and Re
 Redis Pressure Test Command Tool.
 
 Usage:
-	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>]
-         [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>]
-         [--influxdb-database=<database>] [--total=<total>]
-         [--op=<op>] [--rand-key=<rand-key>] [--pipeline=<pipeline>]
+	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--total-key=<total-key>] [--pipeline=<pipeline>] [--total-data=<total-data>]
 	luka --help
 	luka --version
 
@@ -23,8 +20,9 @@ Options:
 	-w <worker_number>, --worker=<worker_number>    The number of the concurrent workers.
 	--total=<total>                                 The total request count.
 	--op=<op>                                       The redis op to do benchtest. Currently support: set, mset, lpush, rpush, sadd, zadd, hset, hmset, get, mget, lrange, smembers, scard, zcard, zcount, zscore, zrange, zrangebyscore, zrevrangebyscore, zrank, hget, hmget, hgetall
-	--rand-key=<rand-key>                           Redis Unique Key count.
+	--total-key=<total-key>                         Redis Unique Key count.
 	--pipeline=<pipeline>                           Every pipeline contains n requests.
+	--total-data=<total-data>                       Total number of fake data, ONLY used when op is a READ operation, such as get, zrange.
 	--influxdb-host=<influxdb-host>					The influxdb host.
 	--influxdb-port=<influxdb-port>					The influxdb port.
 	--influxdb-database=<database>                  The influxdb database which will be written.

@@ -25,6 +25,7 @@ type OpAttr struct {
 var (
 	keys []string
 	fakeDataCount = 0
+	fakeDataCountFail = 0
 )
 
 var opMapping = map[string]OpAttr {
@@ -173,14 +174,18 @@ func (op *RedisOp)HMSet(cmdable redis.Cmdable, unqKeyCount int, needRecord bool)
 	return cmdable.HMSet(key, hashMap).Err() == nil
 }
 
-func (op *RedisOp)FillUpData(redisClient *redis.Client, total, unqKeyCount int) error {
-	totalCount := total / 10
-	round := totalCount / FILLUPPIPELINE + 1
+func (op *RedisOp)FillUpData(redisClient *redis.Client, totalData, unqKeyCount int) error {
+	round := totalData / FILLUPPIPELINE + 1
 	redisOp := opMapping[op.op_name]
 	pipe := redisClient.Pipeline()
 	fc := reflect.ValueOf(op).MethodByName(redisOp.writeFunc)
 	rc := make([]reflect.Value, 0)
-	rc = append(rc, reflect.ValueOf(pipe), reflect.ValueOf(unqKeyCount), reflect.ValueOf(true))
+	rc = append(
+		rc,
+		reflect.ValueOf(pipe),
+		reflect.ValueOf(unqKeyCount),
+		reflect.ValueOf(true),
+	)
 	var rv error
 
 	for i := 0; i < round; i++ {
@@ -190,6 +195,7 @@ func (op *RedisOp)FillUpData(redisClient *redis.Client, total, unqKeyCount int) 
 		_, err := pipe.Exec()
 		if err != nil {
 			rv = err
+			fakeDataCountFail = fakeDataCountFail + FILLUPPIPELINE
 		} else {
 			fakeDataCount = fakeDataCount + FILLUPPIPELINE
 		}
