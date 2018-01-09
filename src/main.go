@@ -85,11 +85,15 @@ func benchOp(host, port string,
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 
+	// get target function and build needed args use reflect
 	redisOp := &RedisOp{op_name: op}
 	opObj := opMapping[op]
 	fc := reflect.ValueOf(redisOp).MethodByName(opObj.funcName)
 	rc := make([]reflect.Value, 0)
-	rc = append(rc, reflect.ValueOf(redisClient), reflect.ValueOf(unqKeyCount))
+	rc = append(rc, reflect.ValueOf(redisClient))
+	if opObj.isWrite {
+		rc = append(rc, reflect.ValueOf(unqKeyCount), reflect.ValueOf(false))
+	}
 
 	bench := func() {
 		startTime := time.Now()
@@ -100,14 +104,10 @@ func benchOp(host, port string,
 
 	if pipeline > 0 {	// use pipeline
 		for t := 0; t < total; t++ {
-			for i := 0; i < pipeline; i++ {
-				bench()
-			}
+			for i := 0; i < pipeline; i++ { bench() }
 		}
 	} else {	// without pipeline
-		for t := 0; t < total; t++ {
-			bench()
-		}
+		for t := 0; t < total; t++ { bench() }
 	}
 }
 
@@ -116,10 +116,9 @@ func makeFakeData(host, port, op string, total, unqKeyCount int) {
 	defer redisClient.Close()
 	defer wgMakeFake.Done()
 	redisOp := RedisOp{op_name: op}
-	fmt.Println("Start to fill up fake redis data.")
 	rv := redisOp.FillUpData(redisClient, total, unqKeyCount)
-	if !rv {
-		fmt.Println("Failed to fill up fake redis data.")
+	if rv != nil {
+		fmt.Printf("Failed to fill up fake redis data: %s\n", rv)
 		return
 	}
 }
@@ -161,11 +160,13 @@ func main() {
 
 	// make fake redis data
 	if !opMapping[op].isWrite {
+		fmt.Println("Start to fill up fake redis data.")
 		wgMakeFake.Add(10)
 		for x := 0; x < 10; x++ {
 			go makeFakeData(host, port, op, total / 10, unqKeyCount)
 		}
 		wgMakeFake.Wait()
+		fmt.Printf("Totally inserted %d fake data into Redis.\n", fakeDataCount)
 	}
 
 	// handle bench test
