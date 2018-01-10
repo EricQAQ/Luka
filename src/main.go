@@ -2,16 +2,16 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 	"net"
-	"time"
-	"strings"
+	"reflect"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/docopt/docopt-go"
-	"github.com/influxdata/influxdb/client/v2"
 	"github.com/go-redis/redis"
+	"github.com/influxdata/influxdb/client/v2"
 )
 
 const usage = `
@@ -40,17 +40,17 @@ Options:
 
 var (
 	wgWriteFinish sync.WaitGroup
-	wgMakeFake sync.WaitGroup
-	arguments map[string]interface{}
+	wgMakeFake    sync.WaitGroup
+	arguments     map[string]interface{}
 )
 
 func getRedisClient(host, port string) *redis.Client {
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     net.JoinHostPort(host, port),
-		Password: "",
-		DB:       0,
-		PoolSize: 100,
-		ReadTimeout: time.Duration(500 * time.Millisecond),
+		Addr:         net.JoinHostPort(host, port),
+		Password:     "",
+		DB:           0,
+		PoolSize:     100,
+		ReadTimeout:  time.Duration(500 * time.Millisecond),
 		WriteTimeout: time.Duration(200 * time.Millisecond),
 	})
 	return redisClient
@@ -84,13 +84,13 @@ func ensureAllArguments() {
 }
 
 func benchOp(host, port string,
-			 total, pipeline, totalKey int,
-			 op string) {
+	total, pipeline, totalKey int,
+	op string) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 
 	// get target function and build needed args use reflect
-	redisOp := &RedisOp{op_name: op}
+	redisOp := &RedisOp{opName: op}
 	opObj := opMapping[op]
 	fc := reflect.ValueOf(redisOp).MethodByName(opObj.funcName)
 	rc := make([]reflect.Value, 0)
@@ -106,12 +106,16 @@ func benchOp(host, port string,
 		metricsPointCh <- makeMetricsPoint(duration, op, flag)
 	}
 
-	if pipeline > 0 {	// use pipeline
+	if pipeline > 0 { // use pipeline
 		for t := 0; t < total; t++ {
-			for i := 0; i < pipeline; i++ { bench() }
+			for i := 0; i < pipeline; i++ {
+				bench()
+			}
 		}
-	} else {	// without pipeline
-		for t := 0; t < total; t++ { bench() }
+	} else { // without pipeline
+		for t := 0; t < total; t++ {
+			bench()
+		}
 	}
 }
 
@@ -119,7 +123,7 @@ func makeFakeData(host, port, op string, totalData int) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 	defer wgMakeFake.Done()
-	redisOp := RedisOp{op_name: op}
+	redisOp := RedisOp{opName: op}
 	rv := redisOp.FillUpData(redisClient, totalData)
 	if rv != nil {
 		fmt.Printf("Failed to fill up fake redis data: %s\n", rv)
@@ -128,13 +132,13 @@ func makeFakeData(host, port, op string, totalData int) {
 }
 
 func getOpCount(worker, total, pipeline int) (int, int) {
-	pipelineCount := Min(total / worker, Max(0, pipeline))
+	pipelineCount := Min(total/worker, Max(0, pipeline))
 	roundCount := total / worker
 	if pipelineCount != 0 {
-		if roundCount % pipelineCount == 0 {
+		if roundCount%pipelineCount == 0 {
 			roundCount = roundCount / pipelineCount
 		} else {
-			roundCount = roundCount / pipelineCount + 1
+			roundCount = roundCount/pipelineCount + 1
 		}
 	}
 	return roundCount, pipelineCount
@@ -166,7 +170,7 @@ func main() {
 		fmt.Println("Start to fill up fake redis data.")
 		wgMakeFake.Add(worker)
 		for x := 0; x < worker; x++ {
-			go makeFakeData(host, port, op, totalData / worker)
+			go makeFakeData(host, port, op, totalData/worker)
 		}
 		wgMakeFake.Wait()
 		fmt.Printf(
