@@ -3,18 +3,16 @@ package main
 import (
 	"fmt"
 	"math/rand"
-	"strings"
 	"strconv"
 	"reflect"
 	"sort"
 
-	"github.com/satori/go.uuid"
 	"github.com/go-redis/redis"
 )
 
 const MAXVALUE = 1000000
 const KEYRANGE = 10000000
-const FILLUPPIPELINE = 1000
+const FILLUPPIPELINE = 100
 
 type OpAttr struct {
 	funcName string
@@ -23,9 +21,11 @@ type OpAttr struct {
 }
 
 var (
-	keys []string
+	totalKey int
+	totalField int
 	fakeDataCount = 0
 	fakeDataCountFail = 0
+	fakeKey = 1
 )
 
 var opMapping = map[string]OpAttr {
@@ -55,137 +55,109 @@ var opMapping = map[string]OpAttr {
 	"hgetall": OpAttr{ funcName: "HGetAll", isWrite: false, writeFunc: "HGet"},
 }
 
-func genKey(op string) string {
-	return fmt.Sprintf("%s-%s-%d",
-					   uuid.NewV4().String(),
-					   op,
-					   rand.Intn(KEYRANGE))
-}
+func generator(isKey bool, op string) string {
+	var key string
 
-func genSimpleKey(op string, totalKey int) string {
-	return fmt.Sprintf("%s-%d", op, rand.Intn(totalKey))
+	if isKey {
+		if fakeKey >= totalKey {
+			key = fmt.Sprintf("%s-%d", op, rand.Intn(fakeKey))
+		} else {
+			key = fmt.Sprintf("%s-%d", op, fakeKey)
+			fakeKey++
+		}
+	} else {
+		key = fmt.Sprintf("%d", rand.Intn(totalField))
+	}
+	return key
 }
-
-func genField() string {
-	return fmt.Sprintf("%s-%d", uuid.NewV4().String(), rand.Intn(MAXVALUE))
-}
-
-func randIndex() int { return rand.Intn(len(keys) - 1) }
 
 type RedisOp struct {
 	op_name string
 }
 
-func (op *RedisOp)Set(cmdable redis.Cmdable, totalKey int, needRecord bool) bool {
-	key := genKey(op.op_name)
+func (op *RedisOp)Set(cmdable redis.Cmdable) bool {
+	key := generator(true, op.op_name)
 	value := rand.Intn(MAXVALUE)
-	if needRecord { keys = append(keys, key) }
 	return cmdable.Set(key, value, 0).Err() == nil
 }
 
-func (op *RedisOp)MSet(cmdable redis.Cmdable, totalKey int, needRecord bool) bool {
-	count := (rand.Intn(10) + 1) * 2
-	var kv = make([]interface{}, count, count)
-	for i := 0; i < count; {
-		kv[i] = genKey(op.op_name)	// key
-		kv[i+1] = rand.Intn(MAXVALUE)	// value
-		if needRecord {
-			keys = append(keys,kv[i].(string))
-		}
+func (op *RedisOp)MSet(cmdable redis.Cmdable) bool {
+	var kv = make([]interface{}, totalField, totalField)
+	for i := 0; i < totalField; {
+		kv[i] = generator(true, op.op_name)	// key
+		kv[i+1] = rand.Intn(MAXVALUE)		// value
 		i = i + 2
 	}
 	return cmdable.MSet(kv...).Err() == nil
 }
 
 func (op *RedisOp)listPush(cmdable redis.Cmdable,
-						   isLeft bool,
-						   totalKey int,
-						   needRecord bool) error {
-	count := rand.Intn(10) + 1
-	key := genSimpleKey(op.op_name, totalKey)
-	var value = make([]interface{}, count, count)
-	for i := 0; i < count; i++ {
-		value[i] = genField()
+						   isLeft bool) error {
+	key := generator(true, op.op_name)
+	var value = make([]interface{}, totalField, totalField)
+	for i := 0; i < totalField; i++ {
+		value[i] = generator(false, op.op_name)
 	}
-	if needRecord { keys = append(keys, key) }
 	if isLeft {
 		return cmdable.LPush(key, value...).Err()
 	}
 	return cmdable.RPush(key, value...).Err()
 }
 
-func (op *RedisOp)LPush(cmdable redis.Cmdable, totalKey int, needRecord bool) bool {
-	return op.listPush(cmdable, true, totalKey, needRecord) == nil
+func (op *RedisOp)LPush(cmdable redis.Cmdable) bool {
+	return op.listPush(cmdable, true) == nil
 }
 
-func (op *RedisOp)RPush(cmdable redis.Cmdable, totalKey int, needRecord bool) bool {
-	return op.listPush(cmdable, false, totalKey, needRecord) == nil
+func (op *RedisOp)RPush(cmdable redis.Cmdable) bool {
+	return op.listPush(cmdable, false) == nil
 }
 
-func (op *RedisOp)SAdd(cmdable redis.Cmdable, totalKey int, needRecord bool) bool {
-	key := genSimpleKey(op.op_name, totalKey)
-	count := rand.Intn(10) + 1
-	var value = make([]interface{}, count, count)
-	for i := 0; i < count; i++ {
-		value[i] = genField()
+func (op *RedisOp)SAdd(cmdable redis.Cmdable) bool {
+	key := generator(true, op.op_name)
+	var value = make([]interface{}, totalField, totalField)
+	for i := 0; i < totalField; i++ {
+		value[i] = generator(false, op.op_name)
 	}
-	if needRecord { keys = append(keys, key) }
 	return cmdable.SAdd(key, value...).Err() == nil
 }
 
-func (op *RedisOp)ZAdd(cmdable redis.Cmdable, totalKey int, needRecord bool) bool {
-	key := genSimpleKey(op.op_name, totalKey)
-	count := rand.Intn(10) + 1
-	var value = make([]redis.Z, count, count)
-	for i := 0; i < count; i++ {
-		member := genField()
+func (op *RedisOp)ZAdd(cmdable redis.Cmdable) bool {
+	key := generator(true, op.op_name)
+	var value = make([]redis.Z, totalField, totalField)
+	for i := 0; i < totalField; i++ {
+		member := generator(false, op.op_name)
 		value[i] = redis.Z{
 			Score: float64(rand.Intn(MAXVALUE)),
 			Member: member,
-		}
-		if needRecord {
-			keys = append(keys, fmt.Sprintf("%s:%s", key, member))
 		}
 	}
 	return cmdable.ZAdd(key, value...).Err() == nil
 }
 
-func (op *RedisOp)HSet(cmdable redis.Cmdable, totalKey int, needRecord bool) bool {
-	key := genSimpleKey(op.op_name, totalKey)
-	field := genField()
+func (op *RedisOp)HSet(cmdable redis.Cmdable) bool {
+	key := generator(true, op.op_name)
+	field := generator(false, op.op_name)
 	value := rand.Intn(MAXVALUE)
-	if needRecord {
-		keys = append(keys, fmt.Sprintf("%s:%s", key, field))
-	}
 	return cmdable.HSet(key, field, value).Err() == nil
 }
 
-func (op *RedisOp)HMSet(cmdable redis.Cmdable, totalKey int, needRecord bool) bool {
-	key := genSimpleKey(op.op_name, totalKey)
-	count := rand.Intn(10) + 1
+func (op *RedisOp)HMSet(cmdable redis.Cmdable) bool {
+	key := generator(true, op.op_name)
 	var hashMap = make(map[string]interface{})
-	for i := 0; i < count; i++ {
-		field := genField()
+	for i := 0; i < totalField; i++ {
+		field := generator(false, op.op_name)
 		hashMap[field] = rand.Intn(MAXVALUE)
-		if needRecord {
-			keys = append(keys, fmt.Sprintf("%s:%s", key, field))
-		}
 	}
 	return cmdable.HMSet(key, hashMap).Err() == nil
 }
 
-func (op *RedisOp)FillUpData(redisClient *redis.Client, totalData, totalKey int) error {
-	round := totalData / FILLUPPIPELINE + 1
+func (op *RedisOp)FillUpData(redisClient *redis.Client, totalKey int) error {
+	round := totalKey / FILLUPPIPELINE + 1
 	redisOp := opMapping[op.op_name]
 	pipe := redisClient.Pipeline()
 	fc := reflect.ValueOf(op).MethodByName(redisOp.writeFunc)
 	rc := make([]reflect.Value, 0)
-	rc = append(
-		rc,
-		reflect.ValueOf(pipe),
-		reflect.ValueOf(totalKey),
-		reflect.ValueOf(true),
-	)
+	rc = append(rc, reflect.ValueOf(pipe))
 	var rv error
 
 	for i := 0; i < round; i++ {
@@ -204,63 +176,65 @@ func (op *RedisOp)FillUpData(redisClient *redis.Client, totalData, totalKey int)
 }
 
 func (op *RedisOp)Get(cmdable redis.Cmdable) bool {
-	return cmdable.Get(keys[randIndex()]).Err() == nil
+	return cmdable.Get(generator(true, op.op_name)).Err() == nil
 }
 
 func (op *RedisOp)MGet(cmdable redis.Cmdable) bool {
 	count := rand.Intn(10) + 1
 	var k = make([]string, count, count)
 	for i := 0; i < count; i++ {
-		k[i] = keys[randIndex()]
+		k[i] = generator(true, op.op_name)
 	}
 	return cmdable.MGet(k...).Err() == nil
 }
 
 func (op *RedisOp)LRange(cmdable redis.Cmdable) bool {
-	return cmdable.LRange(keys[randIndex()], 0, 20).Err() == nil
+	return cmdable.LRange(
+		generator(true, op.op_name), 0, int64(totalField),
+	).Err() == nil
 }
 
 func (op *RedisOp)SMembers(cmdable redis.Cmdable) bool {
-	return cmdable.SMembers(keys[randIndex()]).Err() == nil
+	return cmdable.SMembers(generator(true, op.op_name)).Err() == nil
 }
 
 
 func (op *RedisOp)SCard(cmdable redis.Cmdable) bool {
-	return cmdable.SCard(keys[randIndex()]).Err() == nil
+	return cmdable.SCard(generator(true, op.op_name)).Err() == nil
 }
 
 func (op *RedisOp)ZCard(cmdable redis.Cmdable) bool {
-	km := strings.Split(keys[randIndex()], ":")
-	return cmdable.ZCard(km[0]).Err() == nil
+	return cmdable.ZCard(generator(true, op.op_name)).Err() == nil
 }
 
 func (op *RedisOp)ZCount(cmdable redis.Cmdable) bool {
-	km := strings.Split(keys[randIndex()], ":")
 	rang := []int{rand.Intn(MAXVALUE), rand.Intn(MAXVALUE)}
 	sort.Ints(rang)
 	return cmdable.ZCount(
-		km[0],
+		generator(true, op.op_name),
 		strconv.Itoa(rang[0]),
 		strconv.Itoa(rang[1]),
 	).Err() == nil
 }
 
 func (op *RedisOp)ZScore(cmdable redis.Cmdable) bool {
-	km := strings.Split(keys[randIndex()], ":")
-	return cmdable.ZScore(km[0], km[1]).Err() == nil
+	return cmdable.ZScore(
+		generator(true, op.op_name),
+		generator(false, op.op_name),
+	).Err() == nil
 }
 
 func (op *RedisOp)ZRange(cmdable redis.Cmdable) bool {
-	km := strings.Split(keys[randIndex()], ":")
-	return cmdable.ZRange(km[0], 0, 20).Err() == nil
+	return cmdable.ZRange(
+		generator(true, op.op_name), 0, int64(totalField),
+	).Err() == nil
 }
 
 func (op *RedisOp)ZRangeByScore(cmdable redis.Cmdable) bool {
-	km := strings.Split(keys[randIndex()], ":")
 	rang := []int{rand.Intn(MAXVALUE), rand.Intn(MAXVALUE)}
 	sort.Ints(rang)
 	return cmdable.ZRangeByScore(
-		km[0],
+		generator(true, op.op_name),
 		redis.ZRangeBy{
 			Min: strconv.Itoa(rang[0]),
 			Max: strconv.Itoa(rang[1]),
@@ -269,11 +243,10 @@ func (op *RedisOp)ZRangeByScore(cmdable redis.Cmdable) bool {
 }
 
 func (op *RedisOp)ZRevRangeByScore(cmdable redis.Cmdable) bool {
-	km := strings.Split(keys[randIndex()], ":")
 	rang := []int{rand.Intn(MAXVALUE), rand.Intn(MAXVALUE)}
 	sort.Ints(rang)
 	return cmdable.ZRevRangeByScore(
-		km[0],
+		generator(true, op.op_name),
 		redis.ZRangeBy{
 			Max: strconv.Itoa(rang[1]),
 			Min: strconv.Itoa(rang[0]),
@@ -282,21 +255,28 @@ func (op *RedisOp)ZRevRangeByScore(cmdable redis.Cmdable) bool {
 }
 
 func (op *RedisOp)ZRank(cmdable redis.Cmdable) bool {
-	km := strings.Split(keys[randIndex()], ":")
-	return cmdable.ZRank(km[0], km[1]).Err() == nil
+	return cmdable.ZRank(
+		generator(true, op.op_name),
+		generator(false, op.op_name),
+	).Err() == nil
 }
 
 func (op *RedisOp)HGet(cmdable redis.Cmdable) bool {
-	kf := strings.Split(keys[randIndex()], ":")
-	return cmdable.HGet(kf[0], kf[1]).Err() == nil
+	return cmdable.HGet(
+		generator(true, op.op_name),
+		generator(false, op.op_name),
+	).Err() == nil
 }
 
 func (op *RedisOp)HGetAll(cmdable redis.Cmdable) bool {
-	kf := strings.Split(keys[randIndex()], ":")
-	return cmdable.HGetAll(kf[0]).Err() == nil
+	return cmdable.HGetAll(generator(true, op.op_name)).Err() == nil
 }
 
 func (op *RedisOp)HMGet(cmdable redis.Cmdable) bool {
-	kf := strings.Split(keys[randIndex()], ":")
-	return cmdable.HMGet(kf[0], kf[1], genField(), genField()).Err() == nil
+	return cmdable.HMGet(
+		generator(true, op.op_name),
+		generator(false, op.op_name),
+		generator(false, op.op_name),
+		generator(false, op.op_name),
+	).Err() == nil
 }

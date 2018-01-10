@@ -78,6 +78,9 @@ func ensureAllArguments() {
 	if arguments["--pipeline"] == nil {
 		arguments["--pipeline"] = "0"
 	}
+	if arguments["--total-key"] == nil {
+		arguments["--total-key"] = arguments["--total"]
+	}
 }
 
 func benchOp(host, port string,
@@ -112,12 +115,12 @@ func benchOp(host, port string,
 	}
 }
 
-func makeFakeData(host, port, op string, totalData, totalKey int) {
+func makeFakeData(host, port, op string, totalData int) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 	defer wgMakeFake.Done()
 	redisOp := RedisOp{op_name: op}
-	rv := redisOp.FillUpData(redisClient, totalData, totalKey)
+	rv := redisOp.FillUpData(redisClient, totalData)
 	if rv != nil {
 		fmt.Printf("Failed to fill up fake redis data: %s\n", rv)
 		return
@@ -147,10 +150,12 @@ func main() {
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	pipeline, _ := strconv.Atoi(arguments["--pipeline"].(string))
+	totalData, _ := strconv.Atoi(arguments["--total-data"].(string))
+	totalKey, _ := strconv.Atoi(arguments["--total-key"].(string))
 
 	roundCount, pipelineCount := getOpCount(worker, total, pipeline)
 	metricsPointCh = make(chan *client.Point, total)
-	totalKey := total
+	totalField = totalData / totalKey
 
 	if pipelineCount > 0 {
 		fmt.Printf("Use Pipeline: %d\n", pipelineCount)
@@ -158,12 +163,10 @@ func main() {
 
 	// make fake redis data
 	if !opMapping[op].isWrite {
-		totalKey, _ := strconv.Atoi(arguments["--total-key"].(string))
-		totalData, _ := strconv.Atoi(arguments["--total-data"].(string))
 		fmt.Println("Start to fill up fake redis data.")
-		wgMakeFake.Add(10)
-		for x := 0; x < 10; x++ {
-			go makeFakeData(host, port, op, totalData / 10, totalKey)
+		wgMakeFake.Add(worker)
+		for x := 0; x < worker; x++ {
+			go makeFakeData(host, port, op, totalData / worker)
 		}
 		wgMakeFake.Wait()
 		fmt.Printf(
