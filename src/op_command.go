@@ -82,17 +82,16 @@ func (op *RedisOp) Set(cmdable redis.Cmdable) bool {
 }
 
 func (op *RedisOp) MSet(cmdable redis.Cmdable) bool {
-	var kv = make([]interface{}, totalField, totalField)
-	for i := 0; i < totalField; {
+	var kv = make([]interface{}, totalField*2, totalField*2)
+	for i := 0; i < totalField*2; {
 		kv[i] = generator(true, op.opName) // key
-		kv[i+1] = rand.Intn(MAXVALUE)       // value
+		kv[i+1] = rand.Intn(MAXVALUE)      // value
 		i = i + 2
 	}
 	return cmdable.MSet(kv...).Err() == nil
 }
 
-func (op *RedisOp) listPush(cmdable redis.Cmdable,
-	isLeft bool) error {
+func (op *RedisOp) listPush(cmdable redis.Cmdable, isLeft bool) error {
 	key := generator(true, op.opName)
 	var value = make([]interface{}, totalField, totalField)
 	for i := 0; i < totalField; i++ {

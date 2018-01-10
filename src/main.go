@@ -83,9 +83,7 @@ func ensureAllArguments() {
 	}
 }
 
-func benchOp(host, port string,
-	total, pipeline, totalKey int,
-	op string) {
+func benchOp(host, port string, total, pipeline int, op string) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 
@@ -95,9 +93,6 @@ func benchOp(host, port string,
 	fc := reflect.ValueOf(redisOp).MethodByName(opObj.funcName)
 	rc := make([]reflect.Value, 0)
 	rc = append(rc, reflect.ValueOf(redisClient))
-	if opObj.isWrite {
-		rc = append(rc, reflect.ValueOf(totalKey), reflect.ValueOf(false))
-	}
 
 	bench := func() {
 		startTime := time.Now()
@@ -155,7 +150,7 @@ func main() {
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	pipeline, _ := strconv.Atoi(arguments["--pipeline"].(string))
 	totalData, _ := strconv.Atoi(arguments["--total-data"].(string))
-	totalKey, _ := strconv.Atoi(arguments["--total-key"].(string))
+	totalKey, _ = strconv.Atoi(arguments["--total-key"].(string))
 
 	roundCount, pipelineCount := getOpCount(worker, total, pipeline)
 	metricsPointCh = make(chan *client.Point, total)
@@ -182,7 +177,7 @@ func main() {
 
 	// handle bench test
 	for i := 1; i <= worker; i++ {
-		go benchOp(host, port, roundCount, pipelineCount, totalKey, op)
+		go benchOp(host, port, roundCount, pipelineCount, op)
 	}
 	fmt.Println("Start sending metrics...")
 
