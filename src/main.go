@@ -2,23 +2,23 @@ package main
 
 import (
 	"fmt"
-	"reflect"
 	"net"
-	"time"
-	"strings"
+	"reflect"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/docopt/docopt-go"
-	"github.com/influxdata/influxdb/client/v2"
 	"github.com/go-redis/redis"
+	"github.com/influxdata/influxdb/client/v2"
 )
 
 const usage = `
 Redis Pressure Test Command Tool.
 
 Usage:
-	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--total-key=<total-key>] [--pipeline=<pipeline>] [--total-data=<total-data>]
+	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--total-key=<total-key>] [--pipeline=<pipeline>] [--total-data=<total-data>] [--need-fakedata]
 	luka --help
 	luka --version
 
@@ -33,6 +33,7 @@ Options:
 	--total-key=<total-key>                         Redis Unique Key count.
 	--pipeline=<pipeline>                           Every pipeline contains n requests.
 	--total-data=<total-data>                       Total number of fake data, ONLY used when op is a READ operation, such as get, zrange.
+	--need-fakedata                                 Need Luka to make fake data or NOT. It is useful ONLY if the op is a READ operation.
 	--influxdb-host=<influxdb-host>					The influxdb host.
 	--influxdb-port=<influxdb-port>					The influxdb port.
 	--influxdb-database=<database>                  The influxdb database which will be written.
@@ -40,17 +41,17 @@ Options:
 
 var (
 	wgWriteFinish sync.WaitGroup
-	wgMakeFake sync.WaitGroup
-	arguments map[string]interface{}
+	wgMakeFake    sync.WaitGroup
+	arguments     map[string]interface{}
 )
 
 func getRedisClient(host, port string) *redis.Client {
 	redisClient := redis.NewClient(&redis.Options{
-		Addr:     net.JoinHostPort(host, port),
-		Password: "",
-		DB:       0,
-		PoolSize: 100,
-		ReadTimeout: time.Duration(500 * time.Millisecond),
+		Addr:         net.JoinHostPort(host, port),
+		Password:     "",
+		DB:           0,
+		PoolSize:     100,
+		ReadTimeout:  time.Duration(500 * time.Millisecond),
 		WriteTimeout: time.Duration(200 * time.Millisecond),
 	})
 	return redisClient
@@ -78,23 +79,21 @@ func ensureAllArguments() {
 	if arguments["--pipeline"] == nil {
 		arguments["--pipeline"] = "0"
 	}
+	if arguments["--total-key"] == nil {
+		arguments["--total-key"] = arguments["--total"]
+	}
 }
 
-func benchOp(host, port string,
-			 total, pipeline, totalKey int,
-			 op string) {
+func benchOp(host, port string, total, pipeline int, op string) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 
 	// get target function and build needed args use reflect
-	redisOp := &RedisOp{op_name: op}
+	redisOp := &RedisOp{opName: op}
 	opObj := opMapping[op]
 	fc := reflect.ValueOf(redisOp).MethodByName(opObj.funcName)
 	rc := make([]reflect.Value, 0)
 	rc = append(rc, reflect.ValueOf(redisClient))
-	if opObj.isWrite {
-		rc = append(rc, reflect.ValueOf(totalKey), reflect.ValueOf(false))
-	}
 
 	bench := func() {
 		startTime := time.Now()
@@ -103,21 +102,25 @@ func benchOp(host, port string,
 		metricsPointCh <- makeMetricsPoint(duration, op, flag)
 	}
 
-	if pipeline > 0 {	// use pipeline
+	if pipeline > 0 { // use pipeline
 		for t := 0; t < total; t++ {
-			for i := 0; i < pipeline; i++ { bench() }
+			for i := 0; i < pipeline; i++ {
+				bench()
+			}
 		}
-	} else {	// without pipeline
-		for t := 0; t < total; t++ { bench() }
+	} else { // without pipeline
+		for t := 0; t < total; t++ {
+			bench()
+		}
 	}
 }
 
-func makeFakeData(host, port, op string, totalData, totalKey int) {
+func makeFakeData(host, port, op string, totalData int) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 	defer wgMakeFake.Done()
-	redisOp := RedisOp{op_name: op}
-	rv := redisOp.FillUpData(redisClient, totalData, totalKey)
+	redisOp := RedisOp{opName: op}
+	rv := redisOp.FillUpData(redisClient, totalData)
 	if rv != nil {
 		fmt.Printf("Failed to fill up fake redis data: %s\n", rv)
 		return
@@ -125,13 +128,13 @@ func makeFakeData(host, port, op string, totalData, totalKey int) {
 }
 
 func getOpCount(worker, total, pipeline int) (int, int) {
-	pipelineCount := Min(total / worker, Max(0, pipeline))
+	pipelineCount := Min(total/worker, Max(0, pipeline))
 	roundCount := total / worker
 	if pipelineCount != 0 {
-		if roundCount % pipelineCount == 0 {
+		if roundCount%pipelineCount == 0 {
 			roundCount = roundCount / pipelineCount
 		} else {
-			roundCount = roundCount / pipelineCount + 1
+			roundCount = roundCount/pipelineCount + 1
 		}
 	}
 	return roundCount, pipelineCount
@@ -147,23 +150,23 @@ func main() {
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	pipeline, _ := strconv.Atoi(arguments["--pipeline"].(string))
+	totalData, _ := strconv.Atoi(arguments["--total-data"].(string))
+	totalKey, _ = strconv.Atoi(arguments["--total-key"].(string))
 
 	roundCount, pipelineCount := getOpCount(worker, total, pipeline)
 	metricsPointCh = make(chan *client.Point, total)
-	totalKey := total
+	totalField = totalData / totalKey
 
 	if pipelineCount > 0 {
 		fmt.Printf("Use Pipeline: %d\n", pipelineCount)
 	}
 
 	// make fake redis data
-	if !opMapping[op].isWrite {
-		totalKey, _ := strconv.Atoi(arguments["--total-key"].(string))
-		totalData, _ := strconv.Atoi(arguments["--total-data"].(string))
+	if !opMapping[op].isWrite && arguments["--need-fakedata"].(bool) {
 		fmt.Println("Start to fill up fake redis data.")
-		wgMakeFake.Add(10)
-		for x := 0; x < 10; x++ {
-			go makeFakeData(host, port, op, totalData / 10, totalKey)
+		wgMakeFake.Add(worker)
+		for x := 0; x < worker; x++ {
+			go makeFakeData(host, port, op, totalData/worker)
 		}
 		wgMakeFake.Wait()
 		fmt.Printf(
@@ -175,7 +178,7 @@ func main() {
 
 	// handle bench test
 	for i := 1; i <= worker; i++ {
-		go benchOp(host, port, roundCount, pipelineCount, totalKey, op)
+		go benchOp(host, port, roundCount, pipelineCount, op)
 	}
 	fmt.Println("Start sending metrics...")
 
