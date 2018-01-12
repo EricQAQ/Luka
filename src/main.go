@@ -18,7 +18,7 @@ const usage = `
 Redis Pressure Test Command Tool.
 
 Usage:
-	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--total-key=<total-key>] [--pipeline=<pipeline>] [--total-data=<total-data>]
+	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--total-key=<total-key>] [--pipeline=<pipeline>] [--total-data=<total-data>] [--need-fakedata]
 	luka --help
 	luka --version
 
@@ -33,6 +33,7 @@ Options:
 	--total-key=<total-key>                         Redis Unique Key count.
 	--pipeline=<pipeline>                           Every pipeline contains n requests.
 	--total-data=<total-data>                       Total number of fake data, ONLY used when op is a READ operation, such as get, zrange.
+	--need-fakedata                                 Need Luka to make fake data or NOT. It is useful ONLY if the op is a READ operation.
 	--influxdb-host=<influxdb-host>					The influxdb host.
 	--influxdb-port=<influxdb-port>					The influxdb port.
 	--influxdb-database=<database>                  The influxdb database which will be written.
@@ -161,7 +162,7 @@ func main() {
 	}
 
 	// make fake redis data
-	if !opMapping[op].isWrite {
+	if !opMapping[op].isWrite && arguments["--need-fakedata"].(bool) {
 		fmt.Println("Start to fill up fake redis data.")
 		wgMakeFake.Add(worker)
 		for x := 0; x < worker; x++ {
