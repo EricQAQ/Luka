@@ -60,13 +60,13 @@ func generator(isKey bool, op string) string {
 
 	if isKey {
 		if fakeKey >= totalKey {
-			key = fmt.Sprintf("%s-%d", op, rand.Intn(fakeKey))
+			key = fmt.Sprintf("%s-%020d", op, rand.Intn(fakeKey))
 		} else {
-			key = fmt.Sprintf("%s-%d", op, fakeKey)
+			key = fmt.Sprintf("%s-%020d", op, fakeKey)
 			fakeKey++
 		}
 	} else {
-		key = fmt.Sprintf("%d", rand.Intn(totalField))
+		key = fmt.Sprintf("%015d", rand.Intn(totalField))
 	}
 	return key
 }
