@@ -50,9 +50,9 @@ var opMapping = map[string]OpAttr{
 	"zrangebyscore":    OpAttr{funcName: "ZRangeByScore", isWrite: false, writeFunc: "ZAdd"},
 	"zrevrangebyscore": OpAttr{funcName: "ZRevRangeByScore", isWrite: false, writeFunc: "ZAdd"},
 	"zrank":            OpAttr{funcName: "ZRank", isWrite: false, writeFunc: "ZAdd"},
-	"hget":             OpAttr{funcName: "HGet", isWrite: false, writeFunc: "HGet"},
-	"hmget":            OpAttr{funcName: "HMGet", isWrite: false, writeFunc: "HGet"},
-	"hgetall":          OpAttr{funcName: "HGetAll", isWrite: false, writeFunc: "HGet"},
+	"hget":             OpAttr{funcName: "HGet", isWrite: false, writeFunc: "HSet"},
+	"hmget":            OpAttr{funcName: "HMGet", isWrite: false, writeFunc: "HSet"},
+	"hgetall":          OpAttr{funcName: "HGetAll", isWrite: false, writeFunc: "HSet"},
 }
 
 func generator(isKey bool, op string) string {

@@ -19,7 +19,7 @@ Options:
 	-p <port>, --port=<port>                        The redis port.
 	-w <worker_number>, --worker=<worker_number>    The number of the concurrent workers.
 	--total=<total>                                 The total request count.
-	--op=<op>                                       The redis op to do benchtest. Currently support: set, mset, lpush, rpush, sadd, zadd, hset, hmset, get, mget, lrange, smembers, scard, zcard, zcount, zscore, zrange, zrangebyscore, zrevrangebyscore, zrank, hget, hmget, hgetall
+	--op=<op>                                       The redis op to do benchtest.
 	--total-key=<total-key>                         Redis Unique Key count.
 	--pipeline=<pipeline>                           Every pipeline contains n requests.
 	--total-data=<total-data>                       Total number of fake data, ONLY used when op is a READ operation, such as get, zrange.
@@ -27,4 +27,14 @@ Options:
 	--influxdb-host=<influxdb-host>					The influxdb host.
 	--influxdb-port=<influxdb-port>					The influxdb port.
 	--influxdb-database=<database>                  The influxdb database which will be written.
+```
+
+## Currently Support Redis Command
+
+```
+String      类型: set, mset, get, mget
+List        类型: lpush, rpush, lrange
+Set         类型: sadd, smembers, scard
+Sorted Set  类型: zadd, zcard, zcount, zscore, zrange, zrangebyscore, zrevrangebyscore, zrank
+Hash        类型: hset, hmset, hget, hmget, hgetall
 ```
