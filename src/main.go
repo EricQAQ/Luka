@@ -85,6 +85,7 @@ func ensureAllArguments() {
 }
 
 func benchOp(host, port string, total, pipeline int, op string) {
+	var flag bool
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 
@@ -93,22 +94,33 @@ func benchOp(host, port string, total, pipeline int, op string) {
 	opObj := opMapping[op]
 	fc := reflect.ValueOf(redisOp).MethodByName(opObj.funcName)
 	rc := make([]reflect.Value, 0)
-	rc = append(rc, reflect.ValueOf(redisClient))
 
 	bench := func() {
 		startTime := time.Now()
-		flag := fc.Call(rc)[0].Bool()
+		flag = fc.Call(rc)[0].Bool()
 		duration := time.Now().Sub(startTime).Seconds()
 		metricsPointCh <- makeMetricsPoint(duration, op, flag)
 	}
 
+	benchPipeline := func(pipe redis.Pipeliner) {
+		startTime := time.Now()
+		for i := 0; i < pipeline; i++ {
+			fc.Call(rc)
+		}
+		_, err := pipe.Exec()
+		duration := time.Now().Sub(startTime).Seconds()
+		if err != nil { flag = true } else { flag = false }
+		metricsPointCh <- makeMetricsPoint(duration, op, flag)
+	}
+
 	if pipeline > 0 { // use pipeline
+		pipe := redisClient.Pipeline()
+		rc = append(rc, reflect.ValueOf(pipe))
 		for t := 0; t < total; t++ {
-			for i := 0; i < pipeline; i++ {
-				bench()
-			}
+			benchPipeline(pipe)
 		}
 	} else { // without pipeline
+		rc = append(rc, reflect.ValueOf(redisClient))
 		for t := 0; t < total; t++ {
 			bench()
 		}
@@ -183,7 +195,11 @@ func main() {
 	fmt.Println("Start sending metrics...")
 
 	// metrics coroutine
-	wgWriteFinish.Add(total / 100)
+	if pipelineCount > 0 {
+		wgWriteFinish.Add(total / pipelineCount / 100)
+	} else {
+		wgWriteFinish.Add(total / 100)
+	}
 	go sendMetricsPointLoop()
 	wgWriteFinish.Wait()
 }
