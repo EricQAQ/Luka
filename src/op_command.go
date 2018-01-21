@@ -169,6 +169,7 @@ func (op *RedisOp) FillUpData(redisClient *redis.Client, totalKey int) error {
 			fakeDataCountFail = fakeDataCountFail + FILLUPPIPELINE
 		} else {
 			fakeDataCount = fakeDataCount + FILLUPPIPELINE
+			addBar.Add(FILLUPPIPELINE)
 		}
 	}
 	return rv
