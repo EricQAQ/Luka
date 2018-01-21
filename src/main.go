@@ -12,6 +12,7 @@ import (
 	"github.com/docopt/docopt-go"
 	"github.com/go-redis/redis"
 	"github.com/influxdata/influxdb/client/v2"
+	"gopkg.in/cheggaaa/pb.v2"
 )
 
 const usage = `
@@ -38,11 +39,20 @@ Options:
 	--influxdb-port=<influxdb-port>					The influxdb port.
 	--influxdb-database=<database>                  The influxdb database which will be written.
 `
+const pbFmt = "{{ red \"%s\" }} " +
+	"{{ bar . | green }} " +
+	"Spend: {{ etime . | cyan }} " +
+	"Remain: {{ rtime . | yellow }} " +
+	"Speed: {{ speed . | blue }} " +
+	"Count: {{ counters . | magenta }} " +
+	"Percent: {{ percent . | rndcolor }}"
 
 var (
 	wgWriteFinish sync.WaitGroup
 	wgMakeFake    sync.WaitGroup
 	arguments     map[string]interface{}
+	benchBar      *pb.ProgressBar
+	addBar        *pb.ProgressBar
 )
 
 func getRedisClient(host, port string) *redis.Client {
@@ -99,6 +109,7 @@ func benchOp(host, port string, total, pipeline int, op string) {
 		startTime := time.Now()
 		flag = fc.Call(rc)[0].Bool()
 		duration := time.Now().Sub(startTime).Seconds()
+		benchBar.Add(1)
 		metricsPointCh <- makeMetricsPoint(duration, op, flag)
 	}
 
@@ -109,7 +120,12 @@ func benchOp(host, port string, total, pipeline int, op string) {
 		}
 		_, err := pipe.Exec()
 		duration := time.Now().Sub(startTime).Seconds()
-		if err != nil { flag = true } else { flag = false }
+		if err != nil {
+			flag = true
+		} else {
+			flag = false
+		}
+		benchBar.Add(pipeline)
 		metricsPointCh <- makeMetricsPoint(duration, op, flag)
 	}
 
@@ -139,6 +155,14 @@ func makeFakeData(host, port, op string, totalData int) {
 	}
 }
 
+// Get benchmark operation count.
+// This func returns two integer.
+// 1. If `pipeline` has been given:
+//		the first one is the total count of each worker need to send request
+//		the second one is the pipeline value
+// 2. If `pipeline` has not been given, which means send single commend:
+//		the first one is the total count of each worker need to send request
+//		the second one is 0
 func getOpCount(worker, total, pipeline int) (int, int) {
 	pipelineCount := Min(total/worker, Max(0, pipeline))
 	roundCount := total / worker
@@ -176,18 +200,23 @@ func main() {
 	// make fake redis data
 	if !opMapping[op].isWrite && arguments["--need-fakedata"].(bool) {
 		fmt.Println("Start to fill up fake redis data.")
+		addBar = pb.ProgressBarTemplate(fmt.Sprintf(pbFmt, "Fill up Fake Data: ")).Start(totalData)
+		defer addBar.Finish()
 		wgMakeFake.Add(worker)
 		for x := 0; x < worker; x++ {
 			go makeFakeData(host, port, op, totalData/worker)
 		}
 		wgMakeFake.Wait()
 		fmt.Printf(
-			"Inserted fake data into Redis. Success: %d, Failure: %d.\n",
+			"Inserting fake data into Redis. Success: %d, Failure: %d.\n",
 			fakeDataCount,
 			fakeDataCountFail,
 		)
+		if fakeDataCount == 0 { return }
 	}
 
+	benchBar = pb.ProgressBarTemplate(fmt.Sprintf(pbFmt, "Benchmark")).Start(total)
+	defer benchBar.Finish()
 	// handle bench test
 	for i := 1; i <= worker; i++ {
 		go benchOp(host, port, roundCount, pipelineCount, op)

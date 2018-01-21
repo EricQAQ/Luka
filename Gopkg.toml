@@ -31,4 +31,4 @@
   name = "github.com/influxdata/influxdb"
 
 [[constraint]]
-  name = "github.com/satori/go.uuid"
+  name = "gopkg.in/cheggaaa/pb.v2"
