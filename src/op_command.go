@@ -73,11 +73,27 @@ func generator(isKey bool, op string) string {
 
 type RedisOp struct {
 	opName string
+	dataSize int
+	suffixStr string
+}
+
+func NewRedisOp(opName string, dataSize int) *RedisOp {
+	rop := &RedisOp{
+		opName: opName,
+		dataSize: dataSize * 1024,
+		suffixStr: "",
+	}
+	for i := 0; i < rop.dataSize; i++ {
+		rop.suffixStr += "a"
+	}
+
+	return rop
 }
 
 func (op *RedisOp) Set(cmdable redis.Cmdable) bool {
 	key := generator(true, op.opName)
-	value := rand.Intn(MAXVALUE)
+	value := strconv.FormatInt(int64(rand.Intn(MAXVALUE)), 10)
+	value = value + op.suffixStr[len(value):]
 	return cmdable.Set(key, value, 0).Err() == nil
 }
 
@@ -85,7 +101,8 @@ func (op *RedisOp) MSet(cmdable redis.Cmdable) bool {
 	var kv = make([]interface{}, totalField*2, totalField*2)
 	for i := 0; i < totalField*2; {
 		kv[i] = generator(true, op.opName) // key
-		kv[i+1] = rand.Intn(MAXVALUE)      // value
+		value := strconv.FormatInt(int64(rand.Intn(MAXVALUE)), 10)
+		kv[i+1] = value + op.suffixStr[len(value):] // value
 		i = i + 2
 	}
 	return cmdable.MSet(kv...).Err() == nil

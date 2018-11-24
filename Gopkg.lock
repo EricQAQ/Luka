@@ -10,14 +10,14 @@
 [[projects]]
   name = "github.com/go-redis/redis"
   packages = [".","internal","internal/consistenthash","internal/hashtag","internal/pool","internal/proto"]
-  revision = "4021ace05686f632ff17fd824bbed229fc474cf8"
-  version = "v6.8.2"
+  revision = "8b4fa6d443e35ca8b1c37be877285252430b06a3"
+  version = "v6.8.3"
 
 [[projects]]
   name = "github.com/influxdata/influxdb"
   packages = ["client/v2","models","pkg/escape"]
-  revision = "6d2685d1738277a1c2672fc58df7994627769be6"
-  version = "v1.4.2"
+  revision = "60d27e6995558f38a39e90b35a92cbac080310a3"
+  version = "v1.4.3"
 
 [[projects]]
   name = "github.com/mattn/go-colorable"
@@ -35,7 +35,7 @@
   branch = "master"
   name = "golang.org/x/sys"
   packages = ["unix"]
-  revision = "2c42eef0765b9837fbdab12011af7830f55f88f0"
+  revision = "3dbebcf8efb6a5011a60c2b4591c1022a759af8a"
 
 [[projects]]
   name = "gopkg.in/VividCortex/ewma.v1"

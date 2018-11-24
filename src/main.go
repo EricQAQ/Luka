@@ -19,7 +19,7 @@ const usage = `
 Redis Pressure Test Command Tool.
 
 Usage:
-	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--total-key=<total-key>] [--pipeline=<pipeline>] [--total-data=<total-data>] [--need-fakedata]
+	luka [--host=<host>] [--port=<port>] [--worker=<worker_number>] [--influxdb-host=<influxdb-host>] [--influxdb-port=<influxdb-port>] [--influxdb-database=<database>] [--total=<total>] [--op=<op>] [--total-key=<total-key>] [--pipeline=<pipeline>] [--data-size=<data-size>] [--total-data=<total-data>] [--need-fakedata]
 	luka --help
 	luka --version
 
@@ -33,6 +33,7 @@ Options:
 	--op=<op>                                       The redis op to do benchtest. Currently support: set, mset, lpush, rpush, sadd, zadd, hset, hmset, get, mget, lrange, smembers, scard, zcard, zcount, zscore, zrange, zrangebyscore, zrevrangebyscore, zrank, hget, hmget, hgetall
 	--total-key=<total-key>                         Redis Unique Key count.
 	--pipeline=<pipeline>                           Every pipeline contains n requests.
+	--data-size=<data-size>                         The value size(KB).
 	--total-data=<total-data>                       Total number of fake data, ONLY used when op is a READ operation, such as get, zrange.
 	--need-fakedata                                 Need Luka to make fake data or NOT. It is useful ONLY if the op is a READ operation.
 	--influxdb-host=<influxdb-host>					The influxdb host.
@@ -92,15 +93,18 @@ func ensureAllArguments() {
 	if arguments["--total-key"] == nil {
 		arguments["--total-key"] = arguments["--total"]
 	}
+	if arguments["--data-size"] == nil {
+		arguments["--data-size"] = "2"
+	}
 }
 
-func benchOp(host, port string, total, pipeline int, op string) {
+func benchOp(host, port string, total, pipeline int, op string, dataSize int) {
 	var flag bool
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 
 	// get target function and build needed args use reflect
-	redisOp := &RedisOp{opName: op}
+	redisOp := NewRedisOp(op, dataSize)
 	opObj := opMapping[op]
 	fc := reflect.ValueOf(redisOp).MethodByName(opObj.funcName)
 	rc := make([]reflect.Value, 0)
@@ -143,11 +147,11 @@ func benchOp(host, port string, total, pipeline int, op string) {
 	}
 }
 
-func makeFakeData(host, port, op string, totalData int) {
+func makeFakeData(host, port, op string, totalData, dataSize int) {
 	redisClient := getRedisClient(host, port)
 	defer redisClient.Close()
 	defer wgMakeFake.Done()
-	redisOp := RedisOp{opName: op}
+	redisOp := NewRedisOp(op, dataSize)
 	rv := redisOp.FillUpData(redisClient, totalData)
 	if rv != nil {
 		fmt.Printf("Failed to fill up fake redis data: %s\n", rv)
@@ -186,6 +190,7 @@ func main() {
 	worker, _ := strconv.Atoi(arguments["--worker"].(string))
 	total, _ := strconv.Atoi(arguments["--total"].(string))
 	pipeline, _ := strconv.Atoi(arguments["--pipeline"].(string))
+	dataSize, _ := strconv.Atoi(arguments["--data-size"].(string))
 	totalData, _ := strconv.Atoi(arguments["--total-data"].(string))
 	totalKey, _ = strconv.Atoi(arguments["--total-key"].(string))
 
@@ -204,7 +209,7 @@ func main() {
 		defer addBar.Finish()
 		wgMakeFake.Add(worker)
 		for x := 0; x < worker; x++ {
-			go makeFakeData(host, port, op, totalData/worker)
+			go makeFakeData(host, port, op, totalData/worker, dataSize)
 		}
 		wgMakeFake.Wait()
 		fmt.Printf(
@@ -212,14 +217,16 @@ func main() {
 			fakeDataCount,
 			fakeDataCountFail,
 		)
-		if fakeDataCount == 0 { return }
+		if fakeDataCount == 0 {
+			return
+		}
 	}
 
 	benchBar = pb.ProgressBarTemplate(fmt.Sprintf(pbFmt, "Benchmark")).Start(total)
 	defer benchBar.Finish()
 	// handle bench test
 	for i := 1; i <= worker; i++ {
-		go benchOp(host, port, roundCount, pipelineCount, op)
+		go benchOp(host, port, roundCount, pipelineCount, op, dataSize)
 	}
 	fmt.Println("Start sending metrics...")
 
